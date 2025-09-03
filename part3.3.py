@@ -115,7 +115,7 @@ if __name__ == "__main__":
         for inputs, labels in trainloader:
             inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with torch.amp.autocast(enabled=device.type=="cuda"):
+            with torch.amp.autocast(device_type="cuda"):
                 loss = criterion(model(inputs), labels)
             scaler.scale(loss).backward()
             scaler.step(optimizer); scaler.update()
