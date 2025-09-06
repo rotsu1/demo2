@@ -98,7 +98,7 @@ if __name__ == "__main__":
     else:
         print("FFT was too fast to measure a significant duration difference.")
 
-    N = 1600 # Number of sample points
+    N = 10000 # Number of sample points
     SAMPLE_RATE = 800.0 # Sampling rate in Hz
     FREQUENCY = 50.0 # Frequency of the sine wave in Hz
     # Calculate sample spacing

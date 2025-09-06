@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
+import time
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 
@@ -110,6 +111,8 @@ if __name__ == "__main__":
     scheduler = OneCycleLR(optimizer, max_lr=0.4, steps_per_epoch=len(trainloader), epochs=epochs)
 
     best_acc = 0.0
+    # start timing just before training begins
+    train_start = time.time()
     for epoch in range(epochs):
         model.train()
         for inputs, labels in trainloader:
@@ -138,3 +141,7 @@ if __name__ == "__main__":
         if acc >= 93.0:
             print("Early stop at ≥93%")
             break
+
+    # report total training time (including validation per epoch)
+    elapsed = time.time() - train_start
+    print(f"Total training time: {elapsed:.2f} seconds")

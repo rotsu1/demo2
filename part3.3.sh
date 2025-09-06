@@ -7,14 +7,12 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=08:00:00
+#SBATCH --time=00:30:00
 
 #SBATCH --output=part3.3.out
 #SBATCH --error=part3.3.err
 
-module load anaconda3/
-
-source /home/${USER}/.bashrc
+source /home/Student/s4800316/.bashrc
 
 conda activate conda-pytorch
 
