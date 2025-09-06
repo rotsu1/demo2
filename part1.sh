@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=ai
+#SBATCH --partition=a100
 #SBATCH --gres=gpu:1
 
 #SBATCH --job-name=part1
