@@ -1,0 +1,18 @@
+--- DFT/FFT Performance Comparison ---
+Naïve DFT Execution Time: 0.632650 seconds
+NumPy FFT Execution Time: 0.048647 seconds
+Torch DFT Execution Time: 0.142298 seconds
+FFT is approximately 13.00 times faster.
+Torch DFT is approximately 4.45 times faster.
+--- DFT/FFT Performance Comparison ---
+Naïve DFT Execution Time: 176.561619 seconds
+NumPy FFT Execution Time: 0.000241 seconds
+Torch DFT Execution Time: 2.230009 seconds
+FFT is approximately 733220.90 times faster.
+Torch DFT is approximately 79.18 times faster.
+--- DFT/FFT Performance Comparison ---
+Naïve DFT Execution Time: 0.000191 seconds
+NumPy FFT Execution Time: 0.000045 seconds
+Torch DFT Execution Time: 0.000224 seconds
+FFT is approximately 4.21 times faster.
+Torch DFT is approximately 0.85 times faster.
