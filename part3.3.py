@@ -77,6 +77,9 @@ class ResNet18(nn.Module):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision("high")
 
     CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
     CIFAR10_STD  = (0.2470, 0.2435, 0.2616)
@@ -92,7 +95,7 @@ if __name__ == "__main__":
         transforms.Normalize(CIFAR10_MEAN, CIFAR10_STD),
     ])
 
-    batch_size = 256  # GPUに合わせて 128〜512
+    batch_size = 512
     trainset = datasets.CIFAR10("./data", train=True, download=True, transform=train_tfms)
     testset  = datasets.CIFAR10("./data", train=False, download=True, transform=test_tfms)
 
@@ -102,13 +105,13 @@ if __name__ == "__main__":
                                             num_workers=8, pin_memory=True, persistent_workers=True)
 
     model = ResNet18().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(model.parameters(), lr=0.2, momentum=0.9, weight_decay=5e-4)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     scaler = torch.amp.GradScaler()
 
     epochs = 120
-    scheduler = OneCycleLR(optimizer, max_lr=0.4, steps_per_epoch=len(trainloader), epochs=epochs)
+    scheduler = OneCycleLR(optimizer, max_lr=0.8, steps_per_epoch=len(trainloader), epochs=epochs)
 
     best_acc = 0.0
     # start timing just before training begins
@@ -125,22 +128,23 @@ if __name__ == "__main__":
             scheduler.step()
 
         # --- validation ---
-        model.eval()
-        correct = total = 0
-        with torch.no_grad():
-            for x, y in testloader:
-                x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
-                pred = model(x).argmax(1)
-                correct += (pred==y).sum().item()
-                total += y.size(0)
-        acc = 100.0 * correct / total
-        print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
-        if acc > best_acc:
-            best_acc = acc
-            torch.save(model.state_dict(), "best.pth")
-        if acc >= 93.0:
-            print("Early stop at ≥93%")
-            break
+        if (epoch < 60 and (epoch+1) % 5 == 0) or (epoch >= 60):
+            model.eval()
+            correct = total = 0
+            with torch.no_grad():
+                for x, y in testloader:
+                    x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+                    pred = model(x).argmax(1)
+                    correct += (pred==y).sum().item()
+                    total += y.size(0)
+            acc = 100.0 * correct / total
+            print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
+            if acc > best_acc:
+                best_acc = acc
+                torch.save(model.state_dict(), "best.pth")
+            if acc >= 93.0:
+                print("Early stop at ≥93%")
+                break
 
     # report total training time (including validation per epoch)
     elapsed = time.time() - train_start
