@@ -100,9 +100,9 @@ if __name__ == "__main__":
     testset  = datasets.CIFAR10("./data", train=False, download=True, transform=test_tfms)
 
     trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True,
-                                            num_workers=8, pin_memory=True, persistent_workers=True)
+                                            num_workers=1, pin_memory=True, persistent_workers=True)
     testloader  = DataLoader(testset, batch_size=batch_size, shuffle=False,
-                                            num_workers=8, pin_memory=True, persistent_workers=True)
+                                            num_workers=1, pin_memory=True, persistent_workers=True)
 
     model = ResNet18().to(device)
     optimizer = optim.SGD(model.parameters(), lr=0.2, momentum=0.9, weight_decay=5e-4)
@@ -119,12 +119,14 @@ if __name__ == "__main__":
     for epoch in range(epochs):
         model.train()
         for inputs, labels in trainloader:
-            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            inputs = inputs.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type="cuda"):
                 loss = criterion(model(inputs), labels)
             scaler.scale(loss).backward()
-            scaler.step(optimizer); scaler.update()
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
 
         # --- validation ---
@@ -133,7 +135,8 @@ if __name__ == "__main__":
             correct = total = 0
             with torch.no_grad():
                 for x, y in testloader:
-                    x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+                    x = x.to(device, non_blocking=True)
+                    y = y.to(device, non_blocking=True)
                     pred = model(x).argmax(1)
                     correct += (pred==y).sum().item()
                     total += y.size(0)
