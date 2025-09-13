@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
     scaler = torch.amp.GradScaler()
 
-    epochs = 120
+    epochs = 130
     scheduler = OneCycleLR(optimizer, max_lr=0.8, steps_per_epoch=len(trainloader), epochs=epochs)
 
     best_acc = 0.0
@@ -129,26 +129,19 @@ if __name__ == "__main__":
             scaler.update()
             scheduler.step()
 
-        # --- validation ---
-        if (epoch < 60 and (epoch+1) % 5 == 0) or (epoch >= 60):
-            model.eval()
-            correct = total = 0
-            with torch.no_grad():
-                for x, y in testloader:
-                    x = x.to(device, non_blocking=True)
-                    y = y.to(device, non_blocking=True)
-                    pred = model(x).argmax(1)
-                    correct += (pred==y).sum().item()
-                    total += y.size(0)
-            acc = 100.0 * correct / total
-            print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
-            if acc > best_acc:
-                best_acc = acc
-                torch.save(model.state_dict(), "best.pth")
-            if acc >= 93.0:
-                print("Early stop at ≥93%")
-                break
-
     # report total training time (including validation per epoch)
     elapsed = time.time() - train_start
     print(f"Total training time: {elapsed:.2f} seconds")
+
+    model.eval()
+    correct = total = 0
+    with torch.no_grad():
+        for x, y in testloader:
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
+            pred = model(x).argmax(1)
+            correct += (pred==y).sum().item()
+            total += y.size(0)
+    acc = 100.0 * correct / total
+    print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
+    torch.save(model.state_dict(), "best.pth")
