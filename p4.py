@@ -201,3 +201,25 @@ class CNNVAE(nn.Module):
         z = self.reparameterize(mu, logvar)
         recon = self.decode(z)
         return recon, mu, logvar
+    
+def vae_loss_function(recon_x, x, mu, logvar, beta=1.0):
+    """
+    Compute VAE loss = reconstruction loss + beta * KL divergence.
+
+    Args:
+        recon_x: Reconstructed images from the decoder, shape `(N, 1, H, W)`, values in [0, 1].
+        x: Original images, same shape and range as `recon_x`.
+        mu: Latent mean tensor `(N, latent_dim)`.
+        logvar: Latent log-variance tensor `(N, latent_dim)`.
+        beta: Weight for the KL divergence term (beta-VAE). Use 1.0 for a
+            standard VAE; >1.0 for stronger disentanglement pressure.
+
+    Returns:
+        total_loss, bce, kld: Scalars (summed over batch and pixels for BCE/KLD);
+        typically divide by dataset size per epoch for reporting.
+    """
+    # Reconstruction loss (BCE expects inputs in [0,1])
+    bce = F.binary_cross_entropy(recon_x, x, reduction='sum') # Compare between decoded image and actual image
+    # KL divergence
+    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # Measures how far the learned latent distribution is from prior
+    return bce + beta * kld, bce, kld
