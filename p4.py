@@ -398,3 +398,120 @@ def save_circular_walk(vae, device, out_path, n_samples=24, radius=2.0, dims: tu
     plt.savefig(out_path, dpi=150)
     plt.close(fig)
 
+# -----------------------------
+# Training
+# -----------------------------
+# Hardcoded configuration for SLURM execution
+OUTPUT_DIR = "./outputs_p4"
+
+
+def train():
+    """
+    Train the VAE on OASIS PNG images using hardcoded configuration.
+
+    Uses global constants for data directories, hyperparameters, and output
+    locations. Saves checkpoints and several visualization artifacts to
+    `OUTPUT_DIR`.
+    """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if not torch.cuda.is_available():
+        print("Warning: CUDA not found. Using CPU.")
+    else:
+        print(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+
+    ensure_dir(OUTPUT_DIR)
+
+    transform = T.Compose([
+        T.Grayscale(num_output_channels=1),
+        T.Resize((128, 128)),
+        T.ToTensor(),  # [0,1]
+    ])
+
+    # Explicit train/val directories (exclude test set)
+    train_dirs = "/home/groups/comp3710/OASIS/keras_png_slices_train"
+    val_dirs = "/home/groups/comp3710/OASIS/keras_png_slices_validate"
+    train_ds = BrainMRIDataset(train_dirs, transform=transform, limit=None, include_seg=False)
+    val_ds = BrainMRIDataset(val_dirs, transform=transform, limit=None, include_seg=False)
+    print(f"Dataset size: train={len(train_ds)}, val={len(val_ds)}")
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=64,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=64,
+        shuffle=False,
+        num_workers=max(0, 8 // 2),
+        pin_memory=True,
+    )
+
+    # Model
+    vae = CNNVAE(latent_dim=32, img_size=128).to(device)
+    opt = torch.optim.Adam(vae.parameters(), lr=1e-3)
+
+    best_val = float('inf')
+    start_time = time.time()
+
+    print("Training VAE ...")
+    for epoch in range(1, 21):
+        vae.train()
+        running_loss = 0.0
+        running_bce = 0.0
+        running_kld = 0.0
+        for x, _ in train_loader:
+            x = x.to(device)
+            recon, mu, logvar = vae(x)
+            loss, bce, kld = vae_loss_function(recon, x, mu, logvar)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            running_loss += loss.item()
+            running_bce += bce.item()
+            running_kld += kld.item()
+
+        n_train_elems = len(train_loader.dataset)
+        train_loss = running_loss / n_train_elems
+        train_bce = running_bce / n_train_elems
+        train_kld = running_kld / n_train_elems
+
+        # Validation
+        vae.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for x, _ in val_loader:
+                x = x.to(device)
+                recon, mu, logvar = vae(x)
+                loss, _, _ = vae_loss_function(recon, x, mu, logvar)
+                val_loss += loss.item()
+        val_loss = val_loss / len(val_loader.dataset)
+
+        print(f"Epoch [{epoch}/{20}] "
+              f"Train: loss={train_loss:.4f}, bce={train_bce:.4f}, kld={train_kld:.4f} | "
+              f"Val: loss={val_loss:.4f}")
+
+        # Save periodic artifacts
+        if epoch % 5 == 0 or epoch == 20:
+            save_reconstructions(vae, val_loader, device, os.path.join(OUTPUT_DIR, f"recon_epoch{epoch}.png"))
+
+        # Track best
+        if val_loss < best_val:
+            best_val = val_loss
+            torch.save(vae.state_dict(), os.path.join(OUTPUT_DIR, "vae_best.pth"))
+
+    elapsed = time.time() - start_time
+    print(f"Training complete in {elapsed/60:.1f} min. Best val loss: {best_val:.4f}")
+
+    # Final artifacts
+    torch.save(vae.state_dict(), os.path.join(OUTPUT_DIR, "vae_last.pth"))
+    save_reconstructions(vae, val_loader, device, os.path.join(OUTPUT_DIR, "recon_final.png"))
+    save_generated_samples(vae, device, os.path.join(OUTPUT_DIR, "samples.png"))
+    save_latent_tsne(vae, val_loader, device, os.path.join(OUTPUT_DIR, "latent_tsne.png"), max_batches=30)
+    save_manifold_grid(vae, device, os.path.join(OUTPUT_DIR, "manifold_grid.png"), n_grid=15)
+    save_circular_walk(vae, device, os.path.join(OUTPUT_DIR, "manifold_circular.png"), n_samples=24)
+
+if __name__ == '__main__':
+    train()
