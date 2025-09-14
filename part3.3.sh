@@ -5,7 +5,7 @@
 #SBATCH --job-name=part3.3
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=8
 #SBATCH --time=02:00:00
 
 #SBATCH --output=part3.3.out
