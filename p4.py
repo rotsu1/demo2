@@ -18,3 +18,9 @@ from PIL import Image
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# -----------------------------
+# Utilities
+# -----------------------------
+def ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
