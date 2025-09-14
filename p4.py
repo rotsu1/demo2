@@ -88,3 +88,116 @@ class BrainMRIDataset(Dataset):
             # convert it to tensor that can be used for training
             img = self.transform(img)
         return img, 0  # label unused (unsupervised)
+    
+# -----------------------------
+# Model (VAE)
+# -----------------------------
+class CNNVAE(nn.Module):
+    """
+    Convolutional Variational Autoencoder for 1*H*W brain MR images.
+
+    The encoder downsamples the image by 2* four times (H/16 * W/16), then
+    maps to a latent Gaussian with `latent_dim` mean/log-variance. The decoder
+    mirrors this with transposed convolutions back to the input resolution.
+
+    Args:
+        latent_dim: Size of the latent code z (e.g., 16-128). Larger values
+            typically capture more variation but may be harder to regularize.
+        img_size: Square image size expected by the model (must be divisible
+            by 16, e.g., 128, 256). Input images are resized to `(img_size, img_size)`.
+
+    Input/Output:
+        Input tensors have shape `(N, 1, img_size, img_size)` and values in
+        [0, 1]. The decoder outputs the same shape with a sigmoid activation.
+    """
+    def __init__(self, latent_dim: int = 32, img_size: int = 128):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.img_size = img_size
+
+        # Encoder: input 1x128x128 -> 256x8x8
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+            nn.MaxPool2d(2),  # 128 -> 64
+
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+            nn.MaxPool2d(2),  # 64 -> 32
+
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+            nn.MaxPool2d(2),  # 32 -> 16
+
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+            nn.MaxPool2d(2),  # 16 -> 8
+        )
+
+        enc_out_spatial = img_size // 16  # 128 -> 8
+        self.enc_flat_dim = 256 * enc_out_spatial * enc_out_spatial # total number of features 
+        self.fc_mu = nn.Linear(self.enc_flat_dim, latent_dim)
+        self.fc_logvar = nn.Linear(self.enc_flat_dim, latent_dim)
+
+        self.fc_dec = nn.Linear(latent_dim, self.enc_flat_dim)
+        self.dec_channels = 256
+        self.dec_spatial = enc_out_spatial
+
+        # Decoder: input 256x8x8 -> 1x128x128
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),  # 8 -> 16
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),  # 16 -> 32
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),  # 32 -> 64
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Dropout2d(0.1),
+
+            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),  # 64 -> 128
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+
+            nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
+            nn.Sigmoid(),  # output in [0,1]
+        )
+
+    def encode(self, x):
+        h = self.encoder(x)
+        h = torch.flatten(h, 1) # convert 4D tensor (batch, channels, h, w) -> (batch, features)
+        mu = self.fc_mu(h) # apply fully connected layer
+        logvar = self.fc_logvar(h) # apply fully connected layer
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar) # convert to actual standard deviation
+            eps = torch.randn_like(std) # draws random samples from standard normal distribution
+            return mu + eps * std # return latent variable
+        else:
+            return mu
+
+    def decode(self, z):
+        h = self.fc_dec(z) # apply fully connected layer
+        h = h.view(-1, self.dec_channels, self.dec_spatial, self.dec_spatial) # reshape to (batch, channels, h, w)
+        return self.decoder(h)
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        recon = self.decode(z)
+        return recon, mu, logvar
