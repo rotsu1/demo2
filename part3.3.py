@@ -100,9 +100,9 @@ if __name__ == "__main__":
     testset  = datasets.CIFAR10("./data", train=False, download=True, transform=test_tfms)
 
     trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True,
-                                            num_workers=1, pin_memory=True, persistent_workers=True)
+                                            num_workers=8, pin_memory=True, persistent_workers=True)
     testloader  = DataLoader(testset, batch_size=batch_size, shuffle=False,
-                                            num_workers=1, pin_memory=True, persistent_workers=True)
+                                            num_workers=8, pin_memory=True, persistent_workers=True)
 
     model = ResNet18().to(device)
     optimizer = optim.SGD(model.parameters(), lr=0.2, momentum=0.9, weight_decay=5e-4)
@@ -110,8 +110,8 @@ if __name__ == "__main__":
 
     scaler = torch.amp.GradScaler()
 
-    epochs = 130
-    scheduler = OneCycleLR(optimizer, max_lr=0.8, steps_per_epoch=len(trainloader), epochs=epochs)
+    epochs = 150
+    scheduler = OneCycleLR(optimizer, max_lr=0.4, steps_per_epoch=len(trainloader), epochs=epochs)
 
     best_acc = 0.0
     # start timing just before training begins
@@ -129,19 +129,25 @@ if __name__ == "__main__":
             scaler.update()
             scheduler.step()
 
+        # --- validation ---
+        model.eval()
+        correct = total = 0
+        with torch.no_grad():
+            for x, y in testloader:
+                x = x.to(device, non_blocking=True)
+                y = y.to(device, non_blocking=True)
+                pred = model(x).argmax(1)
+                correct += (pred==y).sum().item()
+                total += y.size(0)
+        acc = 100.0 * correct / total
+        print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), "best.pth")
+        if acc >= 93.0:
+            print("Early stop at ≥93%")
+            break
+
     # report total training time (including validation per epoch)
     elapsed = time.time() - train_start
     print(f"Total training time: {elapsed:.2f} seconds")
-
-    model.eval()
-    correct = total = 0
-    with torch.no_grad():
-        for x, y in testloader:
-            x = x.to(device, non_blocking=True)
-            y = y.to(device, non_blocking=True)
-            pred = model(x).argmax(1)
-            correct += (pred==y).sum().item()
-            total += y.size(0)
-    acc = 100.0 * correct / total
-    print(f"epoch {epoch+1}: val acc = {acc:.2f}%")
-    torch.save(model.state_dict(), "best.pth")
