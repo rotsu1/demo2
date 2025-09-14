@@ -223,3 +223,178 @@ def vae_loss_function(recon_x, x, mu, logvar, beta=1.0):
     # KL divergence
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) # Measures how far the learned latent distribution is from prior
     return bce + beta * kld, bce, kld
+
+# -----------------------------
+# Visualization helpers
+# -----------------------------
+def save_reconstructions(vae, data_loader, device, out_path, n=8):
+    """
+    Save a grid comparing original vs reconstructed validation images.
+
+    Args:
+        vae: Trained VAE model.
+        data_loader: DataLoader used for sampling images to reconstruct.
+        device: Torch device to run inference on.
+        out_path: Filepath to save the PNG figure.
+        n: Number of columns (image pairs) to render.
+    """
+    vae.eval()
+    with torch.no_grad():
+        images, _ = next(iter(data_loader))
+        images = images[: n * 2].to(device)
+        recon, _, _ = vae(images)
+
+        fig, axes = plt.subplots(2, n, figsize=(2 * n, 4))
+        for i in range(n):
+            axes[0, i].imshow(images[i].cpu().squeeze(), cmap='gray')
+            axes[0, i].axis('off')
+            axes[1, i].imshow(recon[i].cpu().squeeze(), cmap='gray')
+            axes[1, i].axis('off')
+        axes[0, 0].set_ylabel('Orig')
+        axes[1, 0].set_ylabel('Recon')
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=150)
+        plt.close(fig)
+
+
+def save_generated_samples(vae, device, out_path, nrow=8):
+    """
+    Sample random latent vectors and save a grid of generated images.
+
+    Args:
+        vae: Trained VAE model.
+        device: Torch device to run inference on.
+        out_path: Filepath to save the PNG figure.
+        nrow: Grid size (nrow × nrow samples).
+    """
+    vae.eval()
+    with torch.no_grad():
+        z = torch.randn(nrow * nrow, vae.latent_dim).to(device)
+        samples = vae.decode(z)
+        fig, axes = plt.subplots(nrow, nrow, figsize=(nrow * 1.5, nrow * 1.5))
+        for i in range(nrow):
+            for j in range(nrow):
+                k = i * nrow + j
+                axes[i, j].imshow(samples[k].cpu().squeeze(), cmap='gray')
+                axes[i, j].axis('off')
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=150)
+        plt.close(fig)
+
+
+def save_latent_tsne(vae, data_loader, device, out_path, max_batches=20):
+    """
+    Compute 2D t-SNE embedding of validation latent means and save a scatter.
+
+    Args:
+        vae: Trained VAE model.
+        data_loader: Validation DataLoader.
+        device: Torch device to run inference on.
+        out_path: Filepath to save the PNG figure.
+        max_batches: Optional cap on number of batches to embed for speed.
+    """
+    try:
+        from sklearn.manifold import TSNE
+    except Exception as e:
+        print(f"t-SNE unavailable: {e}")
+        return
+
+    vae.eval()
+    latents = []
+    with torch.no_grad():
+        for b_idx, (x, _) in enumerate(data_loader):
+            x = x.to(device)
+            mu, _ = vae.encode(x)
+            latents.append(mu.cpu())
+            if max_batches and (b_idx + 1) >= max_batches:
+                break
+    latents = torch.cat(latents, dim=0).numpy()
+    print(f"t-SNE on {latents.shape[0]} embeddings ...")
+    tsne = TSNE(n_components=2, random_state=42, init='random', learning_rate='auto')
+    lat2d = tsne.fit_transform(latents)
+    plt.figure(figsize=(8, 6))
+    plt.scatter(lat2d[:, 0], lat2d[:, 1], s=3, alpha=0.6, c='steelblue')
+    plt.title('VAE Latent Space (t-SNE)')
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
+def save_manifold_grid(vae, device, out_path, n_grid=15, dims: tuple[int, int] | None = None, span: float = 3.0):
+    """
+    Visualize a 2D manifold by fixing two latent dimensions on a grid.
+
+    Args:
+        vae: Trained VAE model.
+        device: Torch device to run inference on.
+        out_path: Filepath to save the PNG figure.
+        n_grid: Number of steps per axis on the grid.
+        dims: Tuple of (dim1, dim2) latent dimensions to vary. If None,
+            uses (0, 1) or a fallback when latent_dim < 2.
+        span: Range for each axis, sampled from [-span, span].
+    """
+    vae.eval()
+    if dims is None:
+        dim1, dim2 = 0, 1 if vae.latent_dim > 1 else (0, 0)
+    else:
+        dim1, dim2 = dims
+
+    grid_x = np.linspace(-span, span, n_grid)
+    grid_y = np.linspace(-span, span, n_grid)
+    fig, axes = plt.subplots(n_grid, n_grid, figsize=(n_grid, n_grid))
+
+    with torch.no_grad():
+        for i, y in enumerate(grid_y):
+            for j, x in enumerate(grid_x):
+                z = torch.zeros(1, vae.latent_dim, device=device)
+                if vae.latent_dim >= 2:
+                    z[0, dim1] = x
+                    z[0, dim2] = y
+                else:
+                    z[0, 0] = x  # single-dim fallback
+                img = vae.decode(z)
+                axes[i, j].imshow(img.cpu().squeeze(), cmap='gray')
+                axes[i, j].axis('off')
+    plt.suptitle(f'Manifold grid (dims {dim1},{dim2})', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def save_circular_walk(vae, device, out_path, n_samples=24, radius=2.0, dims: tuple[int, int] | None = None):
+    """
+    Visualize traversal by walking along a circle in a 2D latent subspace.
+
+    Args:
+        vae: Trained VAE model.
+        device: Torch device to run inference on.
+        out_path: Filepath to save the PNG figure.
+        n_samples: Number of points along the circle to decode.
+        radius: Circle radius in latent units for the chosen dims.
+        dims: Tuple of (dim1, dim2) latent dimensions to vary. If None,
+            uses (0, 1) or a fallback when latent_dim < 2.
+    """
+    vae.eval()
+    if dims is None:
+        dim1, dim2 = 0, 1 if vae.latent_dim > 1 else (0, 0)
+    else:
+        dim1, dim2 = dims
+
+    angles = np.linspace(0, 2 * np.pi, n_samples, endpoint=False)
+    fig, axes = plt.subplots(3, math.ceil(n_samples / 3), figsize=(16, 6))
+    axes = axes.flatten()
+    with torch.no_grad():
+        for i, ang in enumerate(angles):
+            z = torch.zeros(1, vae.latent_dim, device=device)
+            z[0, dim1] = radius * math.cos(ang)
+            if vae.latent_dim >= 2:
+                z[0, dim2] = radius * math.sin(ang)
+            img = vae.decode(z)
+            axes[i].imshow(img.cpu().squeeze(), cmap='gray')
+            axes[i].axis('off')
+            axes[i].set_title(f"{ang:.2f}", fontsize=8)
+    plt.suptitle(f'Circular walk in latent space (dims {dim1},{dim2})', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close(fig)
+
